@@ -24,7 +24,7 @@ TinyApprover can be configured depending on your specific use case.
 - (Recommended) - Want to connect to an LLM app and leverage retrieval augmented generation (RAG)?
      - Please see [LLM_APP.md](https://github.com/cjfit/tinyapprover/blob/main/examples/LLM_APP.md)
 - Want to have a few static actions that can be triggered from incident comments?
-     - This is easier to implement - and more testable - than a runbook. Check out [STATIC_ACTIOJNS.md](https://github.com/cjfit/tinyapprover/blob/main/examples/STATIC_ACTIONS.md)
+     - This is easier to implement - and more testable - than a runbook. Check out [STATIC_ACTIONS.md](https://github.com/cjfit/tinyapprover/blob/main/examples/STATIC_ACTIONS.md)
 
 ## Design Choices
 ### Why OAuth2 over the PagerDuty REST API key or Events API?
