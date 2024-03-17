@@ -1,0 +1,290 @@
+# Main Cfn Template
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for TinyApprover Human-in-the-Loop with API Gateway, Lambda, and PagerDuty integration.
+
+Parameters:
+
+  PDServiceID:
+    Type: String
+    Description: "ID of the PagerDuty Service to forward the alert to"
+
+  PDFromEmail:
+    Type: String
+    Description: "Required From header for creating new incident"
+
+  PDOAuthClientID:
+    Type: String
+    NoEcho: true
+    Description: "PagerDuty OAuth 2 App Client ID"
+
+  PDOAuthClientSecret:
+    Type: String
+    NoEcho: true
+    Description: "PagerDuty OAuth 2 App Client secret"
+
+  PDWebhookSignature:
+    Type: String
+    Description: "Example parameter that should be ignored during initial deployment. PD provides after V3 webhook is created."
+    Default: "IGNORE"
+
+Resources:
+
+  MySnsTopic:
+    Type: 'AWS::SNS::Topic'
+    Properties:
+      TopicName: 'MySnsTopic'
+
+  MySqsQueue:
+    Type: 'AWS::SQS::Queue'
+    Properties:
+      QueueName: 'MySqsQueue'
+
+  MySqsQueuePolicy:
+    Type: 'AWS::SQS::QueuePolicy'
+    Properties:
+      Queues:
+        - !Ref MySqsQueue
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: 'sqs:SendMessage'
+            Resource: !GetAtt MySqsQueue.Arn
+            Condition:
+              ArnEquals:
+                aws:SourceArn: !Ref MySnsTopic
+              
+  MySnsSubscription:
+    Type: 'AWS::SNS::Subscription'
+    Properties:
+      TopicArn: !Ref MySnsTopic
+      Protocol: 'sqs'
+      Endpoint: !GetAtt MySqsQueue.Arn
+
+  PDOAuthSecret:
+    Type: 'AWS::SecretsManager::Secret'
+    Properties:
+      Name: 'PDOAuthSecret'
+      Description: 'PagerDuty OAuth credentials'
+      SecretString: !Sub |
+        {
+          "PDOAuthClientID": "${PDOAuthClientID}",
+          "PDOAuthClientSecret": "${PDOAuthClientSecret}"
+          "PDOAuthAccessToken": ""
+        }
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: [lambda.amazonaws.com]
+            Action: ['sts:AssumeRole']
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - logs:*
+                Resource: arn:aws:logs:*:*:*
+
+  RequestGeneratorLambdaExecutionRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: 'LambdaSQSPolicy'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource: 'arn:aws:logs:*:*:*'
+              - Effect: Allow
+                Action:
+                  - 'sqs:ReceiveMessage'
+                  - 'sqs:DeleteMessage'
+                  - 'sqs:GetQueueAttributes'
+                Resource: !GetAtt MySqsQueue.Arn
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                  - 'secretsmanager:UpdateSecretValue'
+                Resource: !Ref PDOAuthSecret
+                
+  RequestGeneratorLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Processes task requests from SQS and creates incidents in PagerDuty.
+      Handler: index.handler
+      Role: !GetAtt RequestGeneratorLambdaExecutionRole.Arn
+      Runtime: python3.8
+      Environment:
+        Variables:
+          SECRET_NAME: !Ref PDOAuthSecret
+          PD_SERVICE_ID: !Ref PDServiceID
+          PD_FROM_EMAIL: !Ref PDFromEmail
+      Code:
+        ZipFile: |
+          import os
+          import boto3
+
+          def handler(event, context):
+              print("Request Event:", event)
+              # Retrieve secret
+              secret_name = os.environ['SECRET_NAME']
+              client = boto3.client('secretsmanager')
+              response = client.get_secret_value(SecretId=secret_name)
+              secret = response['SecretString']
+
+              print("Secret Client ID: ", secret)
+              return {
+                  'statusCode': 200,
+                  'body': 'Placeholder for creating a PD incident!'
+              }
+
+  MyLambdaEventSourceMapping:
+    Type: 'AWS::Lambda::EventSourceMapping'
+    Properties:
+      EventSourceArn: !GetAtt MySqsQueue.Arn
+      FunctionName: !Ref RequestGeneratorLambdaFunction
+      Enabled: 'True'
+
+  TaskExecutorLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Processes inbound incident comments from PagerDuty and updates task status. Executes privileged task actions if approved. Updates PagerDuty incident.
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.8
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              print("Request Body:", event['body'])
+              return {
+                  'statusCode': 200,
+                  'body': 'Success'
+              }
+
+  AuthorizerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.8
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              token = event['headers'].get('x-custom-token')
+              if token == 'yourExpectedToken':
+                  return {
+                      'principalId': 'user',
+                      'policyDocument': {
+                          'Version': '2012-10-17',
+                          'Statement': [{
+                              'Action': 'execute-api:Invoke',
+                              'Effect': 'Allow',
+                              'Resource': event['methodArn']
+                          }]
+                      }
+                  }
+              else:
+                  raise Exception('Unauthorized')
+
+  RequestGeneratorLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt RequestGeneratorLambdaFunction.Arn
+      Principal: apigateway.amazonaws.com
+
+  TaskExecutorLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt TaskExecutorLambdaFunction.Arn
+      Principal: apigateway.amazonaws.com
+
+  AuthorizerLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt AuthorizerFunction.Arn
+      Principal: apigateway.amazonaws.com
+
+  RequestsTable:
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      TableName: "MyTable"
+      AttributeDefinitions:
+        - AttributeName: "id"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "id"
+          KeyType: "HASH"
+      BillingMode: PAY_PER_REQUEST
+        
+  MyApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: CustomAuthApi
+
+  MyResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MyApi
+      ParentId: !GetAtt MyApi.RootResourceId
+      PathPart: myresource
+
+  MyMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref MyApi
+      ResourceId: !Ref MyResource
+      HttpMethod: POST
+      AuthorizationType: CUSTOM
+      AuthorizerId: !Ref MyAuthorizer
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RequestGeneratorLambdaFunction.Arn}/invocations
+      MethodResponses: []
+
+  MyAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      Name: CustomTokenAuthorizer
+      Type: REQUEST
+      IdentitySource: 'method.request.header.x-custom-token'
+      RestApiId: !Ref MyApi
+      AuthorizerUri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AuthorizerFunction.Arn}/invocations
+      AuthorizerResultTtlInSeconds: 300
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - MyMethod
+    Properties:
+      RestApiId: !Ref MyApi
+      StageName: 'dev'  # You can change this to your preferred stage name
+
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway endpoint URL for the resource"
+    Value: !Sub "https://${MyApi}.execute-api.${AWS::Region}.amazonaws.com/dev/myresource"
+
