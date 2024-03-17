@@ -14,7 +14,7 @@ This projects aims to provide an easy way to respnd to common alerts with a simp
 - PagerDuty Account (Free tier good for 100 requests/month)
 
 ## Quickstart
-Please see [SETUP.md](https://github.com/cjfit/tinyapprover/SETUP.md)
+Please see [SETUP.md](https://github.com/cjfit/tinyapprover/blob/main/SETUP.md)
 
 ## Deep Dive 
 This is a technical README. For more information about TinyApprover, see the [full blog article writeup.](https://medium.com/open-door-security/introducing-tinyapprover-extend-traditional-alerting-with-approvals-f4d353e28276)
@@ -22,9 +22,9 @@ This is a technical README. For more information about TinyApprover, see the [fu
 ## Use cases
 TinyApprover can be configured depending on your specific use case.
 - (Recommended) - Want to connect to an LLM app and leverage retrieval augmented generation (RAG)?
-     - Please see [LLM_APP.md](https://github.com/cjfit/tinyapprover/examples/LLM_APP.md)
+     - Please see [LLM_APP.md](https://github.com/cjfit/tinyapprover/blob/main/examples/LLM_APP.md)
 - Want to have a few static actions that can be triggered from incident comments?
-     - This is easier to implement - and more testable - than a runbook. Check out [STATIC_ACTIOJNS.md](https://github.com/cjfit/tinyapprover/examples/STATIC_ACTIONS.md)
+     - This is easier to implement - and more testable - than a runbook. Check out [STATIC_ACTIOJNS.md](https://github.com/cjfit/tinyapprover/blob/main/examples/STATIC_ACTIONS.md)
 
 ## Design Choices
 ### Why OAuth2 over the PagerDuty REST API key or Events API?

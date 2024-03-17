@@ -42,7 +42,7 @@ In conclusion, the task that would have taken Todd nearly 40 mins including the 
 
 Todd can further enhance this by adding automatic logic to look up the IP in his SIEM and enriching the alert with this information.
 
-If he wanted to take it a step further, he could even write an LLM agent app leveraging RAG to automatically triage the alert - covered in [LLM_APP.md](https://github.com/cjfit/tinyapprover/examples/LLM_APP.md)
+If he wanted to take it a step further, he could even write an LLM agent app leveraging RAG to automatically triage the alert - covered in [LLM_APP.md](https://github.com/cjfit/tinyapprover/blob/main/examples/LLM_APP.md)
 
 ## Next Steps
 
